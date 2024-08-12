@@ -61,14 +61,6 @@ app.post('/register', async (req, res) => {
 });
 
 app.post('/login', async (req, res) => {
-    // TODOS:
-    // 1. validate is email registered? true:
-        // compare is password match? true:
-            // response 200 message: 'User Authenticate'
-        // else:
-            // response 401 message: 'User Unauthenticate'
-    // else:
-        // response 401 message: 'User is not registered!'
     try {
         const { email, password } = req.body; 
 
@@ -110,12 +102,51 @@ app.post('/login', async (req, res) => {
             });
         }
 
+        async function createSession(email){
+            return new Promise((resolve, reject) => {
+                
+                const id = uuidv4();
+                
+                db.query(`
+                    UPDATE users
+                    SET session_id = ?
+                    WHERE email = ?;
+                `, [id, email], (err) => {
+                    if(err) reject(err);
+                    return resolve({ session_id: id });
+                });
+            });
+        }
+
+        async function getUserId(email){
+            return new Promise((resolve, reject) => {
+                db.query(`SELECT id FROM users WHERE email = ?`, [email], (err, responses) => {
+                    if(err) reject(err)
+                    return resolve({ user_id: responses[0].id })
+                })
+            });
+        }
+
         const isRegistered = await isRegister(email)
 
         if(isRegistered.bool){
             const isPasswordMatch = await matchPassword(email, password);
             if(isPasswordMatch){
-                return res.status(200).json({ message: 'User Authenticate!' });
+                createSession(email)
+                .then(response => {
+                    const sessionId = response.session_id;
+                    getUserId(email)
+                    .then(response => {
+                        const userId = response.user_id;
+                        return res.status(200).json({ message: 'User Authenticate!', user_id: userId, session_id: sessionId});
+                    })
+                    .catch(err => {
+                        console.error(err)
+                    });
+                })
+                .catch(err => {
+                    console.error(err)
+                });
             } else { // Unmatched password
                 return res.status(401).json({ message: 'User unauthenticate!' });
             }
