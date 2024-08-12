@@ -1,14 +1,7 @@
 import express from 'express';
-import mysql from 'mysql';
 import { v4 as uuidv4 } from 'uuid';
 import cors from 'cors';
-
-const db = mysql.createConnection({
-  host     : 'localhost',
-  user     : 'root',
-  password : '',
-  database : 'authentication-example'
-});
+import db from './config/database.js';
 
 const app = express();
 
