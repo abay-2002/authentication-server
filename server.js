@@ -4,7 +4,17 @@ import cors from 'cors';
 import db from './config/database.js';
 import { randomBytes } from 'crypto';
 import fernet from 'fernet';
+import nodemailer from 'nodemailer'
 
+// SMTP
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: 'akbar121202@gmail.com',
+      pass: 'lzrk gqwp lmsq muoc'
+    }
+});
+  
 const app = express();
 
 app.use(cors());
@@ -267,12 +277,158 @@ app.post('/authentication/token', async (req, res) => {
             }
         })
         .catch(error => {
-            return res.status(error.status).json({ message: error.meesage })
+            return res.status(error.status).json({ message: error.message })
         });
     } catch (error) {
         
     }
 });
+
+app.post('/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        async function checkOneTimeUrl(email){
+            return new Promise((resolve, reject) => {                          
+                db.query(`
+                    SELECT id FROM url
+                    WHERE type = "otu"
+                    AND user_email = ?
+                `, [email]
+                , (err, responses) => {
+                    if(err) reject(err);
+
+                    if(responses.length > 0){
+                        reject(false);
+                    } else {
+                        resolve(true)
+                    }
+                });
+            });
+        }
+
+        async function createOneTimeUrl(email){
+            return new Promise((resolve, reject) => {          
+                
+                const value = uuidv4();
+                
+                db.query(`
+                    INSERT INTO url(id, user_email, value, type)
+                    VALUES(?, ?, ?, ?);
+                `, [uuidv4(), email, value, 'otu']
+                , (err) => {
+                    if(err) reject(err);
+                    resolve({ value: value });
+                });
+            });
+        }
+
+        checkOneTimeUrl(email)
+        .then(_ => {
+            createOneTimeUrl(email)
+            .then(res => {
+                const otu = res.value;
+
+                const html = `
+                    Go to <a href="http://localhost:5173/change-password/${otu}/${email}">change my password</a> to reset your password!
+                `;
+        
+                const mailOptions = {
+                    from: 'akbar121202@gmail.com',
+                    to: email,
+                    subject: `Change password`,
+                    html
+                };
+                
+                transporter.sendMail(mailOptions, function(error, info){
+                    if (error) {
+                        console.log(error);
+                    } else {
+                        res.status(200).json({ message: `Password change url sent, check your email!` });
+                    }
+                });  
+            })
+            .catch(_ => {
+                return res.status(500).json({ message: 'Internal server error' });
+            });
+        })
+        .catch(err => {
+            return res.status(400).json({ message: 'user already request forgot password'})
+        })
+
+    } catch (error) {
+        
+    }
+});
+
+app.post('/change-password', async (req, res) => {
+    try {
+        const { password, email, otu } = req.body
+    
+        async function validateOtu(email, otu){
+            return new Promise((resolve, reject) => {
+                db.query(`
+                    SELECT user_email 
+                    FROM url 
+                    WHERE user_email = ?
+                    AND value = ?
+                    AND type = "otu";
+                `, [email, otu], (err, responses) => {
+                    if(err) reject(err);
+                    if(responses.length > 0){
+                        resolve(true);
+                    } else {
+                        reject(false);
+                    }
+                });
+            });
+        }
+
+        async function deleteOtu(email){
+            return new Promise((resolve, reject) => {
+                db.query(`DELETE FROM url WHERE type = "otu" AND user_email = ?`, [email], (err) => {
+                    if(err) reject(err);
+                    resolve(true);
+                });
+            });
+        }
+
+        async function changePassword(password, email){
+            return new Promise((resolve, reject) => {
+                db.query(`
+                    UPDATE users
+                    SET password = ?
+                    WHERE email = ?;    
+                `, [password, email], (err) => {
+                    if(err) reject(err)
+                    resolve(true)
+                });
+            });
+        }
+
+        validateOtu(email, otu)
+        .then(response => {
+            deleteOtu(email)
+            .then(_ => {
+                changePassword(password, email)
+                .then(_ => {
+                    return res.status(200).json({ message: 'Successfully changed password!' });
+                })
+                .catch(err => {
+                    return res.status(401).json({ message: 'Invalid OTU' });
+                });
+            })
+            .catch(err => {
+                return res.status(401).json({ message: 'Invalid OTU' });
+            });
+        })
+        .catch(err => {
+            return res.status(401).json({ message: 'Invalid OTU' });
+        });
+    } catch (error) {
+        return res.status(401).json({ message: 'Invalid OTU' });
+    }
+})
 
 const PORT = 8000;
 
