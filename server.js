@@ -32,7 +32,7 @@ app.post('/register', async (req, res) => {
                     WHERE email = ?;
                 `, [email], (err, responses) => {
                     if(err) reject(err)
-                    if(responses.lenght > 0){
+                    if(responses.length > 0){
                         return resolve({ message: 'Email already registered!', status: 406, bool: false })
                     } else {
                         return resolve({ message: 'User not found', status: 200, bool: true })
@@ -60,6 +60,74 @@ app.post('/register', async (req, res) => {
             return res.status(register.status).json({ message: register.message });
         } else {
             return res.status(isRegistered.status).json({ message: isRegistered.message });
+        }
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+app.post('/login', async (req, res) => {
+    // TODOS:
+    // 1. validate is email registered? true:
+        // compare is password match? true:
+            // response 200 message: 'User Authenticate'
+        // else:
+            // response 401 message: 'User Unauthenticate'
+    // else:
+        // response 401 message: 'User is not registered!'
+    try {
+        const { email, password } = req.body; 
+
+        async function isRegister(email){
+            return new Promise((resolve, reject) => {
+                db.query(`
+                    SELECT id 
+                    FROM users
+                    WHERE email = ?;
+                `, [email], (err, responses) => {
+                    if(err) reject(err)
+                    if(responses.length > 0){
+                        return resolve({ message: 'Email already registered!', status: 200, bool: true })
+                    } else {
+                        return resolve({ message: 'Unauthorized!', status: 401, bool: false })
+                    }
+                });
+            });
+        }
+
+        async function matchPassword(email, password){
+            return new Promise((resolve, reject) => {
+                db.query(`
+                    SELECT password
+                    FROM users
+                    WHERE email = ?;    
+                `, [email], (err, responses) => {
+                    if(err) reject(err)
+                    if(responses.length > 0){
+                        const db_password = responses[0].password;
+
+                        if(password === db_password){
+                            return resolve(true);
+                        } else {
+                            return resolve(false);
+                        }
+                    }
+                });
+            });
+        }
+
+        const isRegistered = await isRegister(email)
+
+        if(isRegistered.bool){
+            const isPasswordMatch = await matchPassword(email, password);
+            if(isPasswordMatch){
+                return res.status(200).json({ message: 'User Authenticate!' });
+            } else { // Unmatched password
+                return res.status(401).json({ message: 'User unauthenticate!' });
+            }
+        } else { // Email is not registered
+            return res.status(401).json({ message: 'User unauthenticate!' });
         }
     } catch (error) {
         console.error(error);
