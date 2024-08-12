@@ -32,7 +32,7 @@ app.post('/register', async (req, res) => {
                     WHERE email = ?;
                 `, [email], (err, responses) => {
                     if(err) reject(err)
-                    if(responses.affectedRows > 0){
+                    if(responses.lenght > 0){
                         return resolve({ message: 'Email already registered!', status: 406, bool: false })
                     } else {
                         return resolve({ message: 'User not found', status: 200, bool: true })
