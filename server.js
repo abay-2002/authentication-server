@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import cors from 'cors';
 import db from './config/database.js';
@@ -156,6 +156,74 @@ app.post('/login', async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+app.post('/logout', async (req, res) => {
+    try {
+        const { user_id } = req.body;
+
+        async function removeSessionId(user_id){
+            return new Promise((resolve, reject) => {
+                db.query(`
+                    UPDATE users
+                    SET session_id = NULL
+                    WHERE id = ?; 
+                `, [user_id], (err) => {
+                    if(err) reject(err);
+                    resolve(true)
+                });
+            });
+        }
+
+        removeSessionId(user_id)
+        .then(_ => {
+            return res.status(200).json({ message: 'Successfully logged out!'});
+        })
+        .catch(err => {
+            return res.status(400).json({ message: 'Bad request' });
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'Internal server error' });     
+    }
+});
+
+app.post('/authentication/token', async (req, res) => {
+    try {
+        const { user_id, session_id } = req.body;
+
+        async function getSessionId(user_id){
+            return new Promise((resolve, reject) => {
+                db.query(`
+                    SELECT session_id 
+                    FROM users 
+                    WHERE id = ?;    
+                `, [user_id], (err, responses) => {
+                    if(err) reject(err);
+                    if(responses.length > 0){                        
+                        return resolve({ session_id: responses[0].session_id, status: 200 });
+                    } else {
+                        return reject({ message: 'Unauthorized!', status: 401 });
+                    }
+                });
+            });
+        }
+
+        getSessionId(user_id)
+        .then(responses => {
+            const db_session_id = responses.session_id;
+            if(session_id === db_session_id){
+                return res.status(200).json({ message: 'Authorized!' });
+            } else {
+                return res.status(401).json({ message: 'Unauthorized!' });
+            }
+        })
+        .catch(error => {
+            return res.status(error.status).json({ message: error.meesage })
+        });
+    } catch (error) {
+        
     }
 });
 
