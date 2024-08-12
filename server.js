@@ -1,7 +1,9 @@
-import express, { response } from 'express';
+import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import cors from 'cors';
 import db from './config/database.js';
+import { randomBytes } from 'crypto';
+import fernet from 'fernet';
 
 const app = express();
 
@@ -102,18 +104,37 @@ app.post('/login', async (req, res) => {
             });
         }
 
+        function encryptString(rawText){
+            const key = randomBytes(32).toString('base64');
+            const secret = new fernet.Secret(key);
+        
+            const token = new fernet.Token({
+                secret: secret,
+                time: Date.now(),
+                ttl: 600 // in seconds
+            });
+
+            const encrypted = token.encode(rawText);
+
+            return {encrypted, key}
+        }
+
         async function createSession(email){
             return new Promise((resolve, reject) => {
                 
                 const id = uuidv4();
                 
+                const { encrypted, key } = encryptString(id);
+
                 db.query(`
                     UPDATE users
-                    SET session_id = ?
+                    SET 
+                    session_id = ?,
+                    session_key = ?
                     WHERE email = ?;
-                `, [id, email], (err) => {
+                `, [id, key, email], (err) => {
                     if(err) reject(err);
-                    return resolve({ session_id: id });
+                    return resolve({ session_id: encrypted });
                 });
             });
         }
@@ -167,7 +188,9 @@ app.post('/logout', async (req, res) => {
             return new Promise((resolve, reject) => {
                 db.query(`
                     UPDATE users
-                    SET session_id = NULL
+                    SET 
+                    session_id = NULL,
+                    session_key = NULL
                     WHERE id = ?; 
                 `, [user_id], (err) => {
                     if(err) reject(err);
@@ -193,16 +216,36 @@ app.post('/authentication/token', async (req, res) => {
     try {
         const { user_id, session_id } = req.body;
 
+        function decryptString(inputKey, encryptedString){
+            let key = new fernet.Secret(inputKey);
+          
+            try {
+              let token = new fernet.Token({
+                  secret: key,
+                  token: encryptedString,
+                  ttl: 600 // in seconds (must match the TTL used during encryption)
+              });
+        
+              return token.decode();
+            } catch (error) {
+                return null;
+            }
+        }
+
         async function getSessionId(user_id){
             return new Promise((resolve, reject) => {
                 db.query(`
-                    SELECT session_id 
+                    SELECT session_id, session_key 
                     FROM users 
                     WHERE id = ?;    
                 `, [user_id], (err, responses) => {
                     if(err) reject(err);
                     if(responses.length > 0){                        
-                        return resolve({ session_id: responses[0].session_id, status: 200 });
+                        return resolve({ 
+                            session_key: responses[0].session_key, 
+                            session_id: responses[0].session_id, 
+                            status: 200 
+                        });
                     } else {
                         return reject({ message: 'Unauthorized!', status: 401 });
                     }
@@ -213,7 +256,11 @@ app.post('/authentication/token', async (req, res) => {
         getSessionId(user_id)
         .then(responses => {
             const db_session_id = responses.session_id;
-            if(session_id === db_session_id){
+            const db_session_key = responses.session_key;
+
+            const decrypted_session = decryptString(db_session_key, session_id);
+
+            if(db_session_id === decrypted_session){
                 return res.status(200).json({ message: 'Authorized!' });
             } else {
                 return res.status(401).json({ message: 'Unauthorized!' });
