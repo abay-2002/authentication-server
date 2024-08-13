@@ -18,7 +18,7 @@ const transporter = nodemailer.createTransport({
   
 const app = express();
 
-app.use(cors());
+app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json()) // for parsing application/json
 app.use(express.urlencoded({ extended: true })) // for parsing application/x-www-form-urlencoded
 
@@ -30,6 +30,10 @@ app.post('/register', async (req, res) => {
     try {
         const { username, email, password } = req.body;
         
+        if(!username || !email || !password){
+            return res.status(400).json({ message: `username, email & password is required!` });
+        }
+
         async function isRegister(email){
             return new Promise((resolve, reject) => {
                 db.query(`
@@ -64,7 +68,7 @@ app.post('/register', async (req, res) => {
         }
 
         const isRegistered = await isRegister(email);
-        
+
         if(isRegistered.bool){
             const register = await insertUser(username, email, password)
             return res.status(register.status).json({ message: register.message });
@@ -368,7 +372,7 @@ app.post('/forgot-password', async (req, res) => {
     }
 });
 
-app.post('/change-password', async (req, res) => {
+app.patch('/change-password', async (req, res) => {
     try {
         const { password, email, otu } = req.body
     
@@ -437,7 +441,73 @@ app.post('/change-password', async (req, res) => {
     } catch (error) {
         return res.status(401).json({ message: 'Invalid OTU' });
     }
-})
+});
+
+app.get('/user', async (req, res) => {
+    try {
+        const user_id = req.query.id;
+
+        async function getUserData(id){
+            return new Promise((resolve, reject) => {
+                db.query(`
+                    SELECT  
+                    id, name, email
+                    FROM users
+                    WHERE id = ?;
+                `, [id], (err, responses) => {
+                    if(err) reject(err)
+                    if(responses.length > 0){
+                        return resolve(responses[0]);
+                    } else {
+                        return reject({ message: `Invalid user id`, status: 401 })
+                    }
+                });
+            });
+        }
+
+        getUserData(user_id)
+        .then(response => {
+            const user_data = response;
+            return res.status(200).json(user_data);
+        })
+        .catch(err => {
+            return res.status(err.status || 500).json({ message: err.message } || { message: 'Internal server error'});
+        });
+    } catch (error) {
+        return res.status(500).json({ user_id: 'Internal server error' });
+    }
+});
+
+app.get('/users', async (req, res) => {
+    try {
+        const user_id = req.query.id;
+
+        async function getUserData(id){
+            return new Promise((resolve, reject) => {
+                db.query(`
+                    SELECT  
+                    id, name, email
+                    FROM users
+                    WHERE id LIKE ?;
+                `, [`%${id}%`], (err, responses) => {
+                    if(err) reject(err)
+                    return resolve(responses);                    
+                });
+            });
+        }
+
+        getUserData(user_id)
+        .then(responses => {
+            const users_data = responses;
+            return res.status(200).json(users_data);
+        })
+        .catch(err => {
+            return res.status(500).json({ message: err.message });
+        });
+    } catch (error) {
+        return res.status(500).json({ user_id: 'Internal server error' });
+    }
+});
 
 const PORT = 8000;
 
