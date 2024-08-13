@@ -5,6 +5,7 @@ import db from './config/database.js';
 import { randomBytes } from 'crypto';
 import fernet from 'fernet';
 import nodemailer from 'nodemailer'
+import bcrypt from 'bcrypt';
 
 // SMTP
 const transporter = nodemailer.createTransport({
@@ -48,16 +49,20 @@ app.post('/register', async (req, res) => {
 
         async function insertUser(username, email, password){
             return new Promise((resolve, reject) => {
-                db.query(`
-                    INSERT INTO users(id, name, email, password)
-                    VALUES(?, ?, ?, ?);
-                `, [uuidv4(), username, email, password], (err) => {
+                // Hash password
+                bcrypt.hash(password, 10, function(err, hashed) {
                     if(err) reject(err)
-                    return resolve({ message: `Successfully registered user!`, status: 200 })
+                    db.query(`
+                        INSERT INTO users(id, name, email, password)
+                        VALUES(?, ?, ?, ?);
+                    `, [uuidv4(), username, email, hashed], (err) => {
+                        if(err) reject(err)
+                        return resolve({ message: `Successfully registered user!`, status: 200 })
+                    });
                 });
             });
         }
-    
+
         const isRegistered = await isRegister(email);
         
         if(isRegistered.bool){
@@ -102,13 +107,15 @@ app.post('/login', async (req, res) => {
                 `, [email], (err, responses) => {
                     if(err) reject(err)
                     if(responses.length > 0){
-                        const db_password = responses[0].password;
-
-                        if(password === db_password){
-                            return resolve(true);
-                        } else {
-                            return resolve(false);
-                        }
+                        const db_password = responses[0].password; // hashed
+                        bcrypt.compare(password, db_password, function(err, result) {
+                            if(err) reject(err);
+                            if(result){
+                                return resolve(true);
+                            } else {
+                                return resolve(false);
+                            }
+                        });
                     }
                 });
             });
@@ -337,7 +344,7 @@ app.post('/forgot-password', async (req, res) => {
                     from: 'akbar121202@gmail.com',
                     to: email,
                     subject: `Change password`,
-                    html
+                    html: html
                 };
                 
                 transporter.sendMail(mailOptions, function(error, info){
@@ -395,19 +402,21 @@ app.post('/change-password', async (req, res) => {
 
         async function changePassword(password, email){
             return new Promise((resolve, reject) => {
-                db.query(`
-                    UPDATE users
-                    SET password = ?
-                    WHERE email = ?;    
-                `, [password, email], (err) => {
-                    if(err) reject(err)
-                    resolve(true)
+                bcrypt.hash(password, 10).then((hashed) => {
+                    db.query(`
+                        UPDATE users
+                        SET password = ?
+                        WHERE email = ?;    
+                    `, [hashed, email], (err) => {
+                        if(err) reject(err)
+                        resolve(true)
+                    });
                 });
             });
         }
 
         validateOtu(email, otu)
-        .then(response => {
+        .then(_ => {
             deleteOtu(email)
             .then(_ => {
                 changePassword(password, email)
